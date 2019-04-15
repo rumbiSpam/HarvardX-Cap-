@@ -1,0 +1,190 @@
+---
+title: "Havardx:Capstone CYO"
+author: "Rumbidzai Pamacheche"
+date: "11 April 2019"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## 1. *Introduction*
+Academic achievement is commonly measured through examinations or continuous assessments but there is no general consensus on how it is best evaluated, or which aspects are most important (Ward et al, 1996). It has been said that academic performance is dependent on external factors: **Academic background factors**, **Behavioral factors**, and **Demographic factors**.
+
+Te data set used in the report is extensive and provides us with 33 factors ranging from Academic, Behavioral and Demographic factors. Cortez and Silva (2008), modeled this data set under binary/five-level classification and regression tasks. An important note is that the target attribute G3 has a strong correlation with attributes G2 and G1. This occurs because G3 is the final year grade (issued at the 3rd period), while G1 and G2 correspond to the 1st and 2nd period grades. 
+
+For the prediction of students performance (G3), we will: 1) Analyze how some of the factors in above mentioned categories contribute individually to student's academic performance as well as finding correlation between factors. 2) Building a predictive model using algorithm to predict a student's performance based on these factors.3) Lastly, evaluate performance of the model developed.
+
+## 2. *Methods*
+
+```{r message=FALSE, echo=FALSE}
+library(dplyr)
+library(ggplot2)
+library(caret)
+library(randomForest)
+library(tidyverse)
+library(gridExtra)
+library(corrplot)
+library(corrgram)
+library(caTools)
+
+#Import Data
+#We can download the data from this url: ("http://archive.ics.uci.edu/ml/machine-learning-databases/00356/student.zip",temp, mode="wb")
+student_math_performance <- read.table("student-mat.csv",sep= ";", header= T)
+
+```
+
+Summary of data set:
+There are 395 observations and 33 rows. There are no empty cells in the data set.
+
+```{r message=FALSE, echo=FALSE}
+#Observation about data set
+head(student_math_performance)
+dim(student_math_performance)
+sum(is.na(student_math_performance))
+
+```
+
+#2.1. *Data Cleaning*
+
+```{r message=FALSE, echo=FALSE}
+str(student_math_performance)
+any(is.na(student_math_performance))
+```
+Our data is in tidy format and our categorical variables do not need a change in datatype. Additionally, there are no missing values in the data set. 
+ 
+#2.2. *Explore and Visualize the data set*
+In this section we will explore and visually represent the data set. We will also learn more about the relationships between predictors and student performance. 
+
+*The number of male vs female that passed and the exam*
+
+```{r}
+
+math_performance_gender<-student_math_performance%>%
+    mutate(pass=ifelse(G3>=10,1,0), fail= ifelse(G3<10,1,0))%>%
+    filter(sex=="F"|sex=="M")%>%
+    group_by(sex)%>%
+    summarise(Pass=sum(pass), 
+              Fail=sum(fail))
+
+#Graphical representation: 
+math_performance_gender%>%
+  ggplot(aes(x=sex,y=Fail))+
+  geom_bar(stat="identity")
+```
+We can see that more female students failed than male students, there was a small discrepancy between the genders. 
+
+The graph below shows the *relationship between access to internet and the performance of the students*. It tells us that lack of internet access does impact a students average grade.
+
+```{r message=FALSE, echo=FALSE}
+student_math_performance %>%
+  group_by(internet)%>%
+  ggplot(aes(x=G3, fill=internet))+
+  geom_density( alpha=0.5)
+```
+
+2.2.1. Correlation 
+We will use correlation plots to explore the data and see if there are any significant information. We will only do this for the numeric data.
+
+```{r message=FALSE, echo=FALSE}
+num.cols <- sapply(student_math_performance, is.numeric)
+cor.data <- cor(student_math_performance[,num.cols])
+corrplot::corrplot(cor.data, method='color')
+```
+
+There is a clear high correlation between G1,G2 and G3, which makes sense. 
+G1: first period grade, G2: second period grade, G3: final grade. This means that performing students do well each period, and poor performing students do worse for each period.
+
+Additionally, a high grade value has a negative correlation with past  failure. Mother and Father education levels are positively correlated, meaning the higher level of parental education level the higher grade a student will obtain. 
+
+We can also look at the correlation between alcohol consumption, gender and performance of the students.
+
+```{r}
+dmy <- dummyVars("~.", data=student_math_performance)
+newdata <- data.frame(predict(dmy, newdata=student_math_performance))
+correl1 <-cor(newdata[,c("G1", "G2", "G3","sex.F","sex.M","Walc","Dalc")])
+corrplot::corrplot(correl1, method = 'color')
+```
+
+We also find that gender has a lower correlation with respect to performance as compared to alcohol consumption. We find that both Weekend and Workday Alcohol Consumption is highly negatively correlated with the grades.
+
+2.2.2. G3
+Now lets look at the variable that we want to predict *G3*. 
+
+```{r message=FALSE, echo=FALSE}
+qplot(G3, data=student_math_performance, geom='histogram', bins=20, fill=..count.., xlab='G3 (final grade)')
+```
+
+There is quite a number of students that obtain a *0*.In addition, there is quite a high mean occurrence.
+
+#2.3. *Modelling*
+
+Now that we have a basic understanding of our data set. After some strenuous model fitting attempts, a linear regression model was the most appropriate to use for this report. Take note: output for alternative models not provided for presentation purposes. 
+
+2.3.1. Linear Regression Model
+
+```{r message=FALSE, echo=FALSE}
+library(caTools)
+set.seed(101)
+sample<-sample.split(student_math_performance$age, SplitRatio = 0.7)
+#Training data
+train<- subset(student_math_performance, sample==TRUE)
+#Test data
+test<- subset(student_math_performance, sample==FALSE)
+#Train model
+model_train <- lm(G3~., train)
+summary(model_train)
+```
+
+#3. *Results*
+
+There were some residual values that have a value less than -5. It seems the model predicted that poor performing students would get a negative test results. In order to improve our model performance we will replace all negative values with *0*. So we should test our model on the testing set, and create a data set of actual and predicted results to check the model performance.
+
+```{r message=FALSE, echo=FALSE}
+
+G3.predictions <- predict(model_train, test)
+results <- cbind(G3.predictions, test$G3)
+colnames(results) <- c('Predicted', 'Real')
+results <- as.data.frame(results)
+
+rep_zero <- function(x){
+  if(x<0){
+    return(0)
+  } else {
+    return(x)
+  }
+}
+
+# Apply the function to predicted results
+results$Predicted <- sapply(results$Predicted, rep_zero)
+# Check the range of predicted values
+range(results$Predicted)
+# Apply the function to predicted results
+results$Predicted <- sapply(results$Predicted, rep_zero)
+
+# Check the range of predicted values
+range(results$Predicted)
+sse <- sum((results$Predicted - results$Real)^2)
+sst <- sum((mean(student_math_performance$G3) - results$Real)^2)
+R2 <- 1-sse/sst
+RMSE <- sqrt(mean((results$Real - results$Predicted)^2))
+R2
+
+```
+
+This model performance obtains a R2 = 0.7779023, meaning that our model can explain about 78% variance in our test data. 
+
+#4. *Conclusion*
+The goal for this report was to predict G3 the final grade for students maths performance based on 33 predictors. As we explored the data set we did find some interesting things such as, more female students had a high failure rate for the final exam compared to the male students. Access to internet showed a deteriorating effect on the performance of the students as their average grades increased compared to those without access to internet. 
+
+Regarding correlation, we did find that there was a high correlation between G1,G2 and G3, which was expected. Mother and Father education levels were positively correlated, which means that the higher level of parental education level the higher grade a student will obtain. Additionally, both Weekend and Workday Alcohol Consumption is highly negatively correlated with the grades.
+
+After attempting various model fittings, a linear regression model was the most appropriate to use for this report. The model obtained an R2 of *0.7779023*, meaning that the model can explain about 78% variance in our test data. Although, linear regression models are generally too rigid to be useful, in this case it worked rather well.
+
+#*Recommendations*
+Alternatively, we could have focused on distinguishing above average students from students in difficulty, and only used a single measure (G1) of a student's performance should be enough to classify them in one of two categories.
+
+#*References*
+Ward, A. et al.(1996). "Achievement and Ability Tests - Definition of the Domain", Educational Measurement, 2, University Press of America, pp. 2-5, ISBN 978-0-7618-0385-0 
+Cortez, P., & Silva, A. M. G. (2008). Using Data Mining to Predict Secondary School Student Performance. In A. Brito, & J. Teixeira (Eds.), Proceedings of 5th Annual Future Business Technology Conference, Porto, 5-12.
